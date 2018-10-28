@@ -105,7 +105,7 @@ def entropy(y):
     return entropy_y
 
 
-def mutual_information(x, y):
+def mutual_information(x, y, x_val=0):
     """
     Compute the mutual information between a data column (x) and the labels (y). The data column is a single attribute
     over all the examples (n x 1). Mutual information is the difference between the entropy BEFORE the split set, and
@@ -134,7 +134,7 @@ def majority_label(label_count_map):
     return major_label
 
 
-def id3(x, y, attributes, max_depth, depth=0):
+def id3(x, y, attributes, max_depth, attribute_values, depth=0):
     """
     Implements the classical ID3 algorithm given training data (x), training labels (y) and an array of attributes
     to consider. This is a recursive algorithm that depends on three termination conditions
@@ -172,27 +172,40 @@ def id3(x, y, attributes, max_depth, depth=0):
 
     root = dict()
     max_info_gain = -1
-    max_gain_attr = attributes[0]
-    max_gain_attr_data = []
-    for value in attributes:
-        attr_column = x[:, value]
-        current_gain = mutual_information(attr_column, y)
-        if current_gain > max_info_gain:
-            max_info_gain = current_gain
-            max_gain_attr = value
-            max_gain_attr_data = attr_column
+    max_gain_pair = None
+    for attribute in attributes:
+        for attr_value in attribute_values[attribute]:
+            attr_column = convert_column_to_dual_values(x[:, attribute], attr_value)
+            current_gain = mutual_information(attr_column, y)
+            if current_gain > max_info_gain:
+                max_info_gain = current_gain
+                max_gain_pair = (attribute, attr_value)
 
-    partition_on_attr = partition(max_gain_attr_data)
-    subset_attributes = np.asarray([x for x in attributes if x != max_gain_attr])
-    for value in partition_on_attr:
-        subset_x = []
-        subset_y = []
-        for row_index in partition_on_attr[value]:
-            subset_x.append(x[row_index])
-            subset_y.append(y[row_index])
-        root[(max_gain_attr, value)] = id3(np.asarray(subset_x), np.asarray(subset_y), subset_attributes, max_depth, depth+1)
-    root[(max_gain_attr, 'default')] = majority_label(label_map)
+    attribute_values[max_gain_pair[0]].remove(max_gain_pair[1])
+    subset_x = {True: [], False: []}
+    subset_y = {True: [], False: []}
+    root_attr = max_gain_pair[0]
+    root_val = max_gain_pair[1]
+    for i in range(len(y)):
+        key = x[i, root_attr] == root_val
+        subset_x[key].append(x[i])
+        subset_y[key].append(y[i])
+    for key in [True, False]:
+        root[(root_attr, root_val, key)] = id3(np.asarray(subset_x[key]), np.asarray(subset_y[key]), attributes, max_depth, attribute_values, depth+1)
+    root[(max_gain_pair, 'default')] = majority_label(label_map)
     return root
+
+
+def convert_column_to_dual_values(column, key_value):
+    return map(lambda x: 1 if x == key_value else 0, column)
+
+
+def get_attribute_value_pairs(attributes, x):
+    attribute_values = dict()
+    for attribute in attributes:
+        values = set(x[:,attribute])
+        attribute_values[attribute] = values
+    return attribute_values
 
 
 def predict_example(x, tree):
@@ -205,7 +218,8 @@ def predict_example(x, tree):
     if not isinstance(tree, dict):
         return tree
     attribute = list(tree.keys())[0][0]
-    key = (attribute, x[attribute])
+    attribute_val = list(tree.keys())[0][1]
+    key = (attribute, attribute_val, x[attribute] == attribute_val)
     if key in tree:
         return predict_example(x, tree[key])
     else:
@@ -244,7 +258,10 @@ def visualize(tree, depth=0):
 
         # Print the current node: split criterion
         print('|\t' * depth, end='')
-        print('+-- [SPLIT: x{0} = {1}]'.format(split_criterion[0], split_criterion[1]))
+        if len(split_criterion) > 2:
+            print('+-- [SPLIT: x{0} = {1} {2}]'.format(split_criterion[0], split_criterion[1], split_criterion[2]))
+        else:
+            print('+-- [SPLIT: x{0} = default]'.format(split_criterion[0]))
 
         # Print the children
         if type(sub_trees) is dict:
@@ -270,85 +287,14 @@ def compute_confusion(y_true, y_predicted):
     return confusion_matrix
 
 
-def train_and_test_monks():
-    # Load a data set
-    data = DataSet('monks-1')
-
-    # Get a list of all the attribute indices
-    attribute_idx = np.array(range(data.dim))
-
-    decision_tree = id3(data.examples['train'], data.labels['train'], attribute_idx, 1)
-    visualize(decision_tree)
-    decision_tree = id3(data.examples['train'], data.labels['train'], attribute_idx, 2)
-    visualize(decision_tree)
-
-    # Learn a decision tree of depth 3
-    for d in range(1, 7):
-        print("\nd =" + str(d))
-        decision_tree = id3(data.examples['train'], data.labels['train'], attribute_idx, d)
-        # Compute the training error
-        trn_pred = [predict_example(data.examples['train'][i, :], decision_tree) for i in range(data.num_train)]
-        trn_err = compute_error(data.labels['train'], trn_pred)
-        confusion = compute_confusion(data.labels['train'], trn_pred)
-        print("test confusion ")
-        print(confusion)
-
-        # Compute the test error
-        tst_pred = [predict_example(data.examples['test'][i, :], decision_tree) for i in range(data.num_test)]
-        tst_err = compute_error(data.labels['test'], tst_pred)
-        confusion = compute_confusion(data.labels['test'], tst_pred)
-        print('d={0} trn={1}, tst={2}'.format(d, trn_err, tst_err))
-        print(confusion)
-
-    data_monks1 = DataSet('monks-1')
-    clf = tree.DecisionTreeClassifier()
-    fitted_tree = clf.fit(data_monks1.examples['train'], data_monks1.labels['train'])
-    dot_data = tree.export_graphviz(fitted_tree, out_file=None)
-    graph = graphviz.Source(dot_data)
-    graph.render("scikit-tree")
-    predicted = fitted_tree.predict(data_monks1.examples['test'])
-    confusion = compute_confusion(data.labels['test'], predicted)
-    print("SciKit Learn confusion")
-    print(confusion)
+def bagging(x, y, max_depth, num_trees):
+    pass
 
 
-def train_and_test_breast_cancer_recurrence():
-    data = DataSet('breast-cancer', 10)
-    attribute_idx = np.array(range(data.dim))
-    for d in (1, 2, 8):
-        decision_tree = id3(data.examples['train'], data.labels['train'], attribute_idx, d)
-        visualize(decision_tree)
-
-        # Compute the training error
-        trn_pred = [predict_example(data.examples['train'][i, :], decision_tree) for i in range(data.num_train)]
-        trn_err = compute_error(data.labels['train'], trn_pred)
-        confusion = compute_confusion(data.labels['train'], trn_pred)
-        print("test confusion ")
-        print(confusion)
-
-        # Compute the test error
-        tst_pred = [predict_example(data.examples['test'][i, :], decision_tree) for i in range(data.num_test)]
-        tst_err = compute_error(data.labels['test'], tst_pred)
-        confusion = compute_confusion(data.labels['test'], tst_pred)
-        print('d={0} trn={1}, tst={2}'.format(d, trn_err, tst_err))
-        print(confusion)
-
-    clf = tree.DecisionTreeClassifier()
-    fitted_tree = clf.fit(data.examples['train'], data.labels['train'])
-    predicted = fitted_tree.predict(data.examples['test'])
-    trn_pred = fitted_tree.predict(data.examples['train'])
-    trn_err = compute_error(data.labels['train'], trn_pred)
-    tst_err = compute_error(data.labels['test'], predicted)
-    confusion = compute_confusion(data.labels['test'], predicted)
-    dot_data = tree.export_graphviz(fitted_tree, out_file=None)
-    graph = graphviz.Source(dot_data)
-    graph.render("scikit-breast-cancer-tree")
-    print('scikit trn={1}, tst={2}'.format(10, trn_err, tst_err))
-    print(confusion)
+def boosting(x, y, max_depth, num_stumps):
+    pass
 
 
 if __name__ == '__main__':
     pass
-    train_and_test_monks()
-    train_and_test_breast_cancer_recurrence()
 
