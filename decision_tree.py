@@ -21,9 +21,6 @@
 # visualize, test, or save the data and results. However, you MAY NOT utilize
 # the package scikit-learn OR ANY OTHER machine learning package.
 import copy
-import random
-import time
-
 import numpy as np
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import BaggingClassifier, AdaBoostClassifier
@@ -228,9 +225,9 @@ def id3(x, y, attributes, max_depth, weights: list =None, attribute_values: dict
 
 
 def convert_column_to_dual_values(column, key_value):
-    result = [None]*len(column)
+    result = []
     for i in range(len(column)):
-        result[i] = 1 if column[i] == key_value else 0
+        result.append(1 if column[i] == key_value else 0)
     return result
 
 
@@ -478,6 +475,6 @@ def print_errors(data, trn_pred, tst_pred, max_depth, num_stumps):
 
 if __name__ == '__main__':
     dataset = DataSet('mushroom', 22, delimiter=',')
-    #bag_them_models(dataset)
-    #boost_them_models(dataset)
+    bag_them_models(dataset)
+    boost_them_models(dataset)
     bag_and_boost_scikit(dataset)
