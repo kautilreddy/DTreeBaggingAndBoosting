@@ -183,7 +183,7 @@ def id3(x, y, attributes, max_depth, weights: list =None, attribute_values: dict
     if len(y) == 0:
         raise Exception("No data passed")
     if weights is None:
-        weights = [1]*len(y)
+        weights = [1/len(y)]*len(y)
     if attribute_values is None:
         attribute_values = get_attribute_value_pairs(attributes, x)
     label_map = partition(y)
@@ -261,9 +261,19 @@ def predict_example(x, h_ens):
     Returns the predicted label of x according to tree
     """
     results = []
+    weights = set()
+    weight_sum = 0
     for i in range(len(h_ens)):
-        results.append(predict_example_tree(x, h_ens[i][1]))
-    return majority_label(partition(results))
+        tree = h_ens[i][1]
+        tree_weight = h_ens[i][0]
+        weight_sum += tree_weight
+        weights.add(tree_weight)
+        results.append(tree_weight*predict_example_tree(x, tree))
+    if len(weights) == 1:
+        return majority_label(partition(results))
+    pred = sum(results)
+    pred /= weight_sum
+    return 0 if pred < 0.5 else 1
 
 
 def compute_error(y_true, y_pred):
@@ -345,15 +355,38 @@ def sample_with_replacement(x, y):
     return sample_set
 
 
+def compute_error_rate(y, prediction, w):
+    total_weight = sum(w)
+    return sum([w[i] for i in range(len(y)) if y[i] != prediction[i]])/total_weight
+
+
+def reweigh_example(y, predictions, w, alpha_m):
+    norm_factor = 0
+    w_new = [None]*len(w)
+    for i in range(len(w)):
+        exponent = 0
+        if y[i] != predictions[i]:
+            exponent = alpha_m
+        w_i = w[i]*np.exp(exponent)
+        norm_factor += w_i
+        w_new[i] = w_i
+    return list(map(lambda x: x/norm_factor, w_new))
+
+
 def boosting(x, y, max_depth, num_stumps):
-    N = len(data.labels["train"])
-    w = [1 / N] * N  # weights
+    n = len(y)
+    w = [1 / n] * n  # weights
     h_ens = []
     attributes = range(np.shape(x)[1])
+    total_classes = len(np.unique(y))
     for i in range(num_stumps):
-        alpha_i = 1
         tree = id3(x, y, attributes, max_depth, w)
-        h_ens.append(1,)
+        predictions = [predict_example_tree(x[i], tree) for i in range(n)]
+        error_rate = compute_error_rate(y, predictions, w)
+        alpha_i = np.log((1-error_rate)/error_rate)/2 + np.log(total_classes - 1)
+        w = reweigh_example(y, predictions, w, alpha_i)
+        h_ens.append((alpha_i, tree))
+    return h_ens
 
 
 def bag_them_models(data):
@@ -373,7 +406,7 @@ def bag_them_models(data):
             tst_pred = [predict_example(data.examples['test'][i, :], h_ens[k]) for i in range(data.num_test)]
             tst_err = compute_error(data.labels['test'], tst_pred)
 
-            # print the informations
+            # print the information
             print('k={3} d={0} trn={1}, tst={2}'.format(d, trn_err, tst_err, k))
             confusion = compute_confusion(data.labels['train'], trn_pred)
             print("train confusion ")
@@ -386,12 +419,33 @@ def bag_them_models(data):
 
 
 def boost_them_models(data):
-    k = 20
-    boosting(data.examples["train"], data.labels["train"], 1, k)
+    k = 40
+    h_ens = boosting(data.examples["train"], data.labels["train"], 2, k)
+    trn_pred = [predict_example(data.examples['train'][i, :], h_ens) for i in range(data.num_train)]
+    trn_err = compute_error(data.labels['train'], trn_pred)
+
+    # Compute the test error
+    tst_pred = [predict_example(data.examples['test'][i, :], h_ens) for i in range(data.num_test)]
+    tst_err = compute_error(data.labels['test'], tst_pred)
+
+    # print the information
+    print('k={3} d={0} trn={1}, tst={2}'.format(1, trn_err, tst_err, k))
+    confusion = compute_confusion(data.labels['train'], trn_pred)
+    print("train confusion ")
+    print(confusion[0])
+    print(confusion[1])
+    confusion = compute_confusion(data.labels['test'], tst_pred)
+    print("test confusion ")
+    print(confusion[0])
+    print(confusion[1])
+
+
+def bag_and_boost_scikit(data):
+    pass
 
 
 if __name__ == '__main__':
     data = DataSet('mushroom', 22, delimiter=',')
-    bag_them_models(data)
-    # boost_them_models()
-
+    # bag_them_models(data)
+    boost_them_models(data)
+    # bag_and_boost_scikit(data)
