@@ -74,6 +74,10 @@ class DataSet:
             print('ERROR: Unable to load file ''{0}''. Check path and try again.'.format(path))
 
 
+def weighted_length(w):
+    return sum(w)
+
+
 def partition(x):
     """
     Partition the column vector x into subsets indexed by its unique values (v1, ... vk)
@@ -92,7 +96,7 @@ def partition(x):
     return value_to_index_dict
 
 
-def entropy(y):
+def entropy(y, weights):
     """
     Compute the entropy of a vector y by considering the counts of the unique values (v1, ... vk), in z
 
@@ -100,14 +104,15 @@ def entropy(y):
     """
     partitioned_y = partition(y)
     entropy_y = 0
-    total_values = len(y)
-    for value in partitioned_y.values():
-        prob_of_value = (len(value))/total_values
+    total_values = weighted_length(weights)
+    for values in partitioned_y.values():
+        weights_for_values = [weights[i] for i in values]
+        prob_of_value = (weighted_length(weights_for_values))/total_values
         entropy_y -= prob_of_value*np.log2(prob_of_value)
     return entropy_y
 
 
-def mutual_information(x, y, entropy_y=None):
+def mutual_information(x, y, weights, entropy_y=None):
     """
     Compute the mutual information between a data column (x) and the labels (y). The data column is a single attribute
     over all the examples (n x 1). Mutual information is the difference between the entropy BEFORE the split set, and
@@ -116,13 +121,14 @@ def mutual_information(x, y, entropy_y=None):
     Returns the mutual information: I(x, y) = H(y) - H(y | x)
     """
     if entropy_y is None:
-        entropy_y = entropy(y)
+        entropy_y = entropy(y, weights)
     partitioned_x = partition(x)
-    total_values = len(y)
+    total_values = weighted_length(weights)
     entropy_x = 0
     for val in partitioned_x.keys():
         labels_for_val = [y[i] for i in partitioned_x[val]]
-        entropy_x += (len(labels_for_val)/total_values)*entropy(labels_for_val)
+        weights_for_val = [weights[i] for i in partitioned_x[val]]
+        entropy_x += (weighted_length(weights_for_val)/total_values)*entropy(labels_for_val, weights_for_val)
     return entropy_y - entropy_x
 
 
@@ -130,7 +136,7 @@ def majority_label(label_count_map):
     max_count = -1
     major_label = None
     for label in label_count_map:
-        elements_with_label_count = len(label_count_map[label])
+        elements_with_label_count = weighted_length(label_count_map[label])
         if elements_with_label_count > max_count:
             max_count = elements_with_label_count
             major_label = label
@@ -145,7 +151,7 @@ def get_attribute_value_pairs(attributes, x):
     return attribute_values
 
 
-def id3(x, y, attributes, max_depth, attribute_values=None, depth=0):
+def id3(x, y, attributes, max_depth, weights: list =None, attribute_values: dict=None, depth: int=0) -> dict:
     """
     Implements the classical ID3 algorithm given training data (x), training labels (y) and an array of attributes
     to consider. This is a recursive algorithm that depends on three termination conditions
@@ -176,6 +182,8 @@ def id3(x, y, attributes, max_depth, attribute_values=None, depth=0):
     """
     if len(y) == 0:
         raise Exception("No data passed")
+    if weights is None:
+        weights = [1]*len(y)
     if attribute_values is None:
         attribute_values = get_attribute_value_pairs(attributes, x)
     label_map = partition(y)
@@ -188,17 +196,18 @@ def id3(x, y, attributes, max_depth, attribute_values=None, depth=0):
     root = dict()
     max_info_gain = -1
     max_gain_pair = None
-    entropy_y = entropy(y)
+    entropy_y = entropy(y, weights)
     for attribute in attributes:
         for attr_value in attribute_values[attribute]:
             attr_column = convert_column_to_dual_values(x[:, attribute], attr_value)
-            current_gain = mutual_information(attr_column, y, entropy_y)
+            current_gain = mutual_information(attr_column, y, weights, entropy_y)
             if current_gain > max_info_gain:
                 max_info_gain = current_gain
                 max_gain_pair = (attribute, attr_value)
     attribute_values[max_gain_pair[0]].remove(max_gain_pair[1])
     subset_x = {True: [], False: []}
     subset_y = {True: [], False: []}
+    subset_weights = {True: [], False: []}
     attr_subset_true = list(attributes)
     attr_subset_true.remove(max_gain_pair[0])
     subset_attr = {True: attr_subset_true, False: list(attributes)}
@@ -207,10 +216,11 @@ def id3(x, y, attributes, max_depth, attribute_values=None, depth=0):
     for i in range(len(y)):
         key = x[i, root_attr] == root_val
         subset_x[key].append(x[i])
+        subset_weights[key].append(weights[i])
         subset_y[key].append(y[i])
     for key in [True, False]:
         root[(root_attr, root_val, key)] = id3(np.asarray(subset_x[key]), np.asarray(subset_y[key]), subset_attr[key],
-                                               max_depth, copy.deepcopy(attribute_values), depth+1)
+                                               max_depth, subset_weights[key], copy.deepcopy(attribute_values), depth+1)
     root[(max_gain_pair, 'default')] = majority_label(label_map)
     return root
 
@@ -336,7 +346,14 @@ def sample_with_replacement(x, y):
 
 
 def boosting(x, y, max_depth, num_stumps):
-    pass
+    N = len(data.labels["train"])
+    w = [1 / N] * N  # weights
+    h_ens = []
+    attributes = range(np.shape(x)[1])
+    for i in range(num_stumps):
+        alpha_i = 1
+        tree = id3(x, y, attributes, max_depth, w)
+        h_ens.append(1,)
 
 
 def bag_them_models(data):
@@ -368,12 +385,13 @@ def bag_them_models(data):
             print(confusion[1])
 
 
-def boost_them_models():
-    pass
+def boost_them_models(data):
+    k = 20
+    boosting(data.examples["train"], data.labels["train"], 1, k)
 
 
 if __name__ == '__main__':
     data = DataSet('mushroom', 22, delimiter=',')
     bag_them_models(data)
-    boost_them_models()
+    # boost_them_models()
 
