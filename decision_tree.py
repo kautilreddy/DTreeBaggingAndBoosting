@@ -391,119 +391,91 @@ def boosting(x, y, max_depth, num_stumps):
     return h_ens
 
 
-def bag_them_models(data, classifier):
+def bag_them_models(data):
+    print("\nBagging: ")
     for d in [3, 5]:
         for k in [10, 20]:
             h_ens = bagging(data.examples['train'], data.labels['train'], d, k)
-            # Compute the training error
-            trn_pred = [predict_example(data.examples['train'][i, :], h_ens) for i in range(data.num_train)]
-            trn_err = compute_error(data.labels['train'], trn_pred)
-
-            # Compute the test error
-            tst_pred = [predict_example(data.examples['test'][i, :], h_ens) for i in range(data.num_test)]
-            tst_err = compute_error(data.labels['test'], tst_pred)
-
-            # print the information
-            print('k={3} d={0} trn={1}, tst={2}'.format(d, trn_err, tst_err, k))
-            confusion = compute_confusion(data.labels['train'], trn_pred)
-            print("train confusion ")
-            print(confusion[0])
-            print(confusion[1])
-            confusion = compute_confusion(data.labels['test'], tst_pred)
-            print("test confusion ")
-            print(confusion[0])
-            print(confusion[1])
+            trn_pred, tst_pred = get_predictions(data, h_ens)
+            print_errors(data, trn_pred, tst_pred, d, k)
+    print("\n\n")
 
 
 def boost_them_models(data):
+    print("\nBoosting: ")
     for k in [20, 40]:
         for d in [1, 2]:
             h_ens = boosting(data.examples["train"], data.labels["train"], d, k)
-            trn_pred = [predict_example(data.examples['train'][i, :], h_ens) for i in range(data.num_train)]
-            trn_err = compute_error(data.labels['train'], trn_pred)
-
-            # Compute the test error
-            tst_pred = [predict_example(data.examples['test'][i, :], h_ens) for i in range(data.num_test)]
-            tst_err = compute_error(data.labels['test'], tst_pred)
-
-            # print the information
-            print('k={3} d={0} trn={1}, tst={2}'.format(1, trn_err, tst_err, k))
-            confusion = compute_confusion(data.labels['train'], trn_pred)
-            print("train confusion ")
-            print(confusion[0])
-            print(confusion[1])
-            confusion = compute_confusion(data.labels['test'], tst_pred)
-            print("test confusion ")
-            print(confusion[0])
-            print(confusion[1])
+            trn_pred, tst_pred = get_predictions(data, h_ens)
+            print_errors(data, trn_pred, tst_pred, d, k)
+    print("\n\n")
 
 
 def bag_and_boost_scikit(data):
+    print("\nBagging SciKit Learn")
     for d in [3, 5]:
         tree = DecisionTreeClassifier(max_depth=d)
         for k in [10, 20]:
             model = BaggingClassifier(tree, n_estimators=k).fit(data.examples['train'], data.labels['train'])
-            # Compute the training error
-            trn_pred = model.predict(data.examples['train'])
-            trn_err = compute_error(data.labels['train'], trn_pred)
+            trn_pred, tst_pred = get_predictions_scikit(data, model)
+            print_errors(data, trn_pred, tst_pred, d, k)
+    print("\n\n")
 
-            # Compute the test error
-            tst_pred = model.predict(data.examples['test'])
-            tst_err = compute_error(data.labels['test'], tst_pred)
-
-            # print the information
-            print('k={3} d={0} trn={1}, tst={2}'.format(d, trn_err, tst_err, k))
-            confusion = compute_confusion(data.labels['train'], trn_pred)
-            print("train confusion ")
-            print(confusion[0])
-            print(confusion[1])
-            confusion = compute_confusion(data.labels['test'], tst_pred)
-            print("test confusion ")
-            print(confusion[0])
-            print(confusion[1])
-
-    print("\nBoosting ")
+    print("\nBoosting SciKit Learn")
     for d in [1, 2]:
         tree = DecisionTreeClassifier(max_depth=d)
         for k in [20, 40]:
             model = AdaBoostClassifier(tree, n_estimators=k).fit(data.examples['train'], data.labels['train'])
-            trn_pred = model.predict(data.examples['train'])
-            trn_err = compute_error(data.labels['train'], trn_pred)
-
-            # Compute the test error
-            tst_pred = model.predict(data.examples['test'])
-            tst_err = compute_error(data.labels['test'], tst_pred)
-
-            # print the information
-            print('k={3} d={0} trn={1}, tst={2}'.format(1, trn_err, tst_err, k))
-            confusion = compute_confusion(data.labels['train'], trn_pred)
-            print("train confusion ")
-            print(confusion[0])
-            print(confusion[1])
-            confusion = compute_confusion(data.labels['test'], tst_pred)
-            print("test confusion ")
-            print(confusion[0])
-            print(confusion[1])
+            trn_pred, tst_pred = get_predictions_scikit(data, model)
+            print_errors(data, trn_pred, tst_pred, d, k)
+    print("\n\n")
 
 
-def test_custom_bagging(x, y, num_stumps, max_depth):
-    return ()
+def get_predictions(data, h_ens):
+    # Compute the training error
+    trn_pred = [predict_example(data.examples['train'][i, :], h_ens) for i in range(data.num_train)]
+    # Compute the test error
+    tst_pred = [predict_example(data.examples['test'][i, :], h_ens) for i in range(data.num_test)]
+    return trn_pred, tst_pred
 
 
-def test_custom_boost():
-    return ()
+def get_predictions_scikit(data, model):
+    # Compute the training error
+    trn_pred = model.predict(data.examples['train'])
+    # Compute the test error
+    tst_pred = model.predict(data.examples['test'])
+    return trn_pred, tst_pred
 
 
-def test_scikit_bagging():
-    return ()
+def test_custom_bagging(data, num_stumps, max_depth):
+    h_ens = bagging(data.examples['train'], data.labels['train'], max_depth, num_stumps)
+    return get_predictions(data, h_ens)
 
 
-def test_scikit_boost():
-    return ()
+def test_custom_boost(data, num_stumps, max_depth):
+    h_ens = boosting(data.examples["train"], data.labels["train"], max_depth, num_stumps)
+    return get_predictions(data, h_ens)
+
+
+def print_errors(data, trn_pred, tst_pred, max_depth, num_stumps):
+    trn_err = compute_error(data.labels['train'], trn_pred)
+    tst_err = compute_error(data.labels['test'], tst_pred)
+
+    # print the information
+    print('k={3} d={0} trn={1}, tst={2}'.format(max_depth, trn_err, tst_err, num_stumps))
+    print('-----------------------------------------------------------')
+    confusion = compute_confusion(data.labels['train'], trn_pred)
+    print("train confusion ")
+    print(confusion[0])
+    print(confusion[1])
+    confusion = compute_confusion(data.labels['test'], tst_pred)
+    print("test confusion ")
+    print(confusion[0])
+    print(confusion[1])
 
 
 if __name__ == '__main__':
-    data = DataSet('mushroom', 22, delimiter=',')
-    bag_them_models(data)
-    boost_them_models(data)
-    bag_and_boost_scikit(data)
+    dataset = DataSet('mushroom', 22, delimiter=',')
+    bag_them_models(dataset)
+    boost_them_models(dataset)
+    bag_and_boost_scikit(dataset)
