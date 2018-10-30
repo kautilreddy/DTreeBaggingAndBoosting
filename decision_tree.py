@@ -362,7 +362,7 @@ def compute_error_rate(y, prediction, w):
     return sum([w[i] for i in range(len(y)) if y[i] != prediction[i]])/total_weight
 
 
-def reweigh_example(y, predictions, w, alpha_m):
+def reweigh_examples(y, predictions, w, alpha_m):
     norm_factor = 0
     w_new = [None]*len(w)
     for i in range(len(w)):
@@ -386,10 +386,12 @@ def boosting(x, y, max_depth, num_stumps):
         predictions = [predict_example_tree(x[i], tree) for i in range(n)]
         error_rate = compute_error_rate(y, predictions, w)
         alpha_i = np.log((1-error_rate)/error_rate)/2 + np.log(total_classes - 1)
-        w = reweigh_example(y, predictions, w, alpha_i)
+        w = reweigh_examples(y, predictions, w, alpha_i)
         h_ens.append((alpha_i, tree))
     return h_ens
 
+
+# code for different experiments on bagging and boosting
 
 def bag_them_models(data):
     print("\nBagging: ")
@@ -425,7 +427,7 @@ def bag_and_boost_scikit(data):
     for d in [1, 2]:
         tree = DecisionTreeClassifier(max_depth=d)
         for k in [20, 40]:
-            model = AdaBoostClassifier(tree, n_estimators=k).fit(data.examples['train'], data.labels['train'])
+            model = AdaBoostClassifier(tree, n_estimators=k, algorithm='SAMME').fit(data.examples['train'], data.labels['train'])
             trn_pred, tst_pred = get_predictions_scikit(data, model)
             print_errors(data, trn_pred, tst_pred, d, k)
     print("\n\n")
@@ -476,6 +478,6 @@ def print_errors(data, trn_pred, tst_pred, max_depth, num_stumps):
 
 if __name__ == '__main__':
     dataset = DataSet('mushroom', 22, delimiter=',')
-    bag_them_models(dataset)
-    boost_them_models(dataset)
+    #bag_them_models(dataset)
+    #boost_them_models(dataset)
     bag_and_boost_scikit(dataset)
