@@ -20,9 +20,11 @@
 # 3. You may add any other helper functions you feel you may need to print,
 # visualize, test, or save the data and results. However, you MAY NOT utilize
 # the package scikit-learn OR ANY OTHER machine learning package.
-import graphviz as graphviz
+import copy
+import random
+import time
+
 import numpy as np
-from sklearn import tree
 
 '''
     Student Name: Kautil Reddy D
@@ -30,13 +32,14 @@ from sklearn import tree
 '''
 # A simple utility class to load data sets for this assignment
 class DataSet:
-    def __init__(self, data_set, column_count=6):
+    def __init__(self, data_set, column_count=6, delimiter=' ', label_column=0):
         """
         Initialize a data set and load both training and test data
         DO NOT MODIFY THIS FUNCTION
         """
         self.name = data_set
         self.column_count = column_count
+        self.delimiter = delimiter
 
         # The training and test labels
         self.labels = {'train': None, 'test': None}
@@ -62,7 +65,7 @@ class DataSet:
         path = './data/{0}.{1}'.format(self.name, dset_type)
         try:
             file_contents = np.genfromtxt(path, missing_values=0, skip_header=0,
-                                          usecols=range(self.column_count), dtype=int)
+                                          usecols=range(self.column_count), dtype=int, delimiter=self.delimiter)
 
             self.labels[dset_type] = file_contents[:, 0]
             self.examples[dset_type] = file_contents[:, 1:]
@@ -95,17 +98,16 @@ def entropy(y):
 
     Returns the entropy of z: H(z) = p(z=v1) log2(p(z=v1)) + ... + p(z=vk) log2(p(z=vk))
     """
-
     partitioned_y = partition(y)
     entropy_y = 0
-    total_values = sum([len(partitioned_y[i]) for i in partitioned_y])
+    total_values = len(y)
     for value in partitioned_y.values():
         prob_of_value = (len(value))/total_values
         entropy_y -= prob_of_value*np.log2(prob_of_value)
     return entropy_y
 
 
-def mutual_information(x, y, x_val=0):
+def mutual_information(x, y, entropy_y=None):
     """
     Compute the mutual information between a data column (x) and the labels (y). The data column is a single attribute
     over all the examples (n x 1). Mutual information is the difference between the entropy BEFORE the split set, and
@@ -113,7 +115,8 @@ def mutual_information(x, y, x_val=0):
 
     Returns the mutual information: I(x, y) = H(y) - H(y | x)
     """
-    entropy_y = entropy(y)
+    if entropy_y is None:
+        entropy_y = entropy(y)
     partitioned_x = partition(x)
     total_values = len(y)
     entropy_x = 0
@@ -134,7 +137,15 @@ def majority_label(label_count_map):
     return major_label
 
 
-def id3(x, y, attributes, max_depth, attribute_values, depth=0):
+def get_attribute_value_pairs(attributes, x):
+    attribute_values = dict()
+    for attribute in attributes:
+        values = set(x[:, attribute])
+        attribute_values[attribute] = values
+    return attribute_values
+
+
+def id3(x, y, attributes, max_depth, attribute_values=None, depth=0):
     """
     Implements the classical ID3 algorithm given training data (x), training labels (y) and an array of attributes
     to consider. This is a recursive algorithm that depends on three termination conditions
@@ -163,6 +174,10 @@ def id3(x, y, attributes, max_depth, attribute_values, depth=0):
               (0, 2): 0,
               (0, 3): 1}}
     """
+    if len(y) == 0:
+        raise Exception("No data passed")
+    if attribute_values is None:
+        attribute_values = get_attribute_value_pairs(attributes, x)
     label_map = partition(y)
     if len(label_map.keys()) == 1:  # congrats all the examples have same label!
         return (label_map.popitem())[0]
@@ -173,17 +188,20 @@ def id3(x, y, attributes, max_depth, attribute_values, depth=0):
     root = dict()
     max_info_gain = -1
     max_gain_pair = None
+    entropy_y = entropy(y)
     for attribute in attributes:
         for attr_value in attribute_values[attribute]:
             attr_column = convert_column_to_dual_values(x[:, attribute], attr_value)
-            current_gain = mutual_information(attr_column, y)
+            current_gain = mutual_information(attr_column, y, entropy_y)
             if current_gain > max_info_gain:
                 max_info_gain = current_gain
                 max_gain_pair = (attribute, attr_value)
-
     attribute_values[max_gain_pair[0]].remove(max_gain_pair[1])
     subset_x = {True: [], False: []}
     subset_y = {True: [], False: []}
+    attr_subset_true = list(attributes)
+    attr_subset_true.remove(max_gain_pair[0])
+    subset_attr = {True: attr_subset_true, False: list(attributes)}
     root_attr = max_gain_pair[0]
     root_val = max_gain_pair[1]
     for i in range(len(y)):
@@ -191,24 +209,20 @@ def id3(x, y, attributes, max_depth, attribute_values, depth=0):
         subset_x[key].append(x[i])
         subset_y[key].append(y[i])
     for key in [True, False]:
-        root[(root_attr, root_val, key)] = id3(np.asarray(subset_x[key]), np.asarray(subset_y[key]), attributes, max_depth, attribute_values, depth+1)
+        root[(root_attr, root_val, key)] = id3(np.asarray(subset_x[key]), np.asarray(subset_y[key]), subset_attr[key],
+                                               max_depth, copy.deepcopy(attribute_values), depth+1)
     root[(max_gain_pair, 'default')] = majority_label(label_map)
     return root
 
 
 def convert_column_to_dual_values(column, key_value):
-    return map(lambda x: 1 if x == key_value else 0, column)
+    result = [None]*len(column)
+    for i in range(len(column)):
+        result[i] = 1 if column[i] == key_value else 0
+    return result
 
 
-def get_attribute_value_pairs(attributes, x):
-    attribute_values = dict()
-    for attribute in attributes:
-        values = set(x[:,attribute])
-        attribute_values[attribute] = values
-    return attribute_values
-
-
-def predict_example(x, tree):
+def predict_example_tree(x, tree):
     """
     Predicts the classification label for a single example x using tree by recursively descending the tree until
     a label/leaf node is reached.
@@ -221,12 +235,25 @@ def predict_example(x, tree):
     attribute_val = list(tree.keys())[0][1]
     key = (attribute, attribute_val, x[attribute] == attribute_val)
     if key in tree:
-        return predict_example(x, tree[key])
+        return predict_example_tree(x, tree[key])
     else:
         if (attribute, 'default') not in tree:
             return -1
         else:
             return tree[attribute, 'default']
+
+
+def predict_example(x, h_ens):
+    """
+    Predicts the classification label for a single example x using tree by recursively descending the tree until
+    a label/leaf node is reached.
+
+    Returns the predicted label of x according to tree
+    """
+    results = []
+    for i in range(len(h_ens)):
+        results.append(predict_example_tree(x, h_ens[i][1]))
+    return majority_label(partition(results))
 
 
 def compute_error(y_true, y_pred):
@@ -288,13 +315,65 @@ def compute_confusion(y_true, y_predicted):
 
 
 def bagging(x, y, max_depth, num_trees):
-    pass
+    h_ens = []
+    attribute_idx = np.array(range(np.shape(x)[1]))
+    for i in range(num_trees):
+        bootstrap_sample = sample_with_replacement(x, y)
+        tree = id3(bootstrap_sample["data"], bootstrap_sample["labels"], attribute_idx, max_depth)
+        h_ens.append((1, tree))
+    return h_ens
+
+
+def sample_with_replacement(x, y):
+    sample_idx = np.random.choice(len(y), size=len(y), replace=True)
+    sample_set = {"data": [], "labels": []}
+    for i in sample_idx:
+        sample_set["data"].append(x[i])
+        sample_set["labels"].append(y[i])
+    sample_set["data"] = np.array(sample_set["data"])
+    sample_set["labels"] = np.array(sample_set["labels"])
+    return sample_set
 
 
 def boosting(x, y, max_depth, num_stumps):
     pass
 
 
-if __name__ == '__main__':
+def bag_them_models(data):
+    for d in [3, 5]:
+        h_ens = {}
+        print("computing models")
+        h_ens[10] = bagging(data.examples['train'], data.labels['train'], d, 10)
+        print("computing models next 10")
+        h_ens[20] = list(h_ens[10])
+        h_ens[20].extend(bagging(data.examples['train'], data.labels['train'], d, 10))
+        for k in [10, 20]:
+            # Compute the training error
+            trn_pred = [predict_example(data.examples['train'][i, :], h_ens[k]) for i in range(data.num_train)]
+            trn_err = compute_error(data.labels['train'], trn_pred)
+
+            # Compute the test error
+            tst_pred = [predict_example(data.examples['test'][i, :], h_ens[k]) for i in range(data.num_test)]
+            tst_err = compute_error(data.labels['test'], tst_pred)
+
+            # print the informations
+            print('k={3} d={0} trn={1}, tst={2}'.format(d, trn_err, tst_err, k))
+            confusion = compute_confusion(data.labels['train'], trn_pred)
+            print("train confusion ")
+            print(confusion[0])
+            print(confusion[1])
+            confusion = compute_confusion(data.labels['test'], tst_pred)
+            print("test confusion ")
+            print(confusion[0])
+            print(confusion[1])
+
+
+def boost_them_models():
     pass
+
+
+if __name__ == '__main__':
+    data = DataSet('mushroom', 22, delimiter=',')
+    bag_them_models(data)
+    boost_them_models()
 
